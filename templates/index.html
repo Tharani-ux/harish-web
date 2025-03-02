@@ -11,6 +11,14 @@
         <h1>Welcome to Our Platform</h1>
         <img src="logo" alt="logo">
         <p>Select your category to proceed:</p>
+
+        <!-- Response Message -->
+        {% if message %}
+        <div class="response-message">
+            <p>{{ message }}</p>
+        </div>
+        {% endif %}
+
         <div class="categories">
             <a href="/login?role=disabled" class="btn">Disabled People</a>
             <a href="/login?role=volunteer" class="btn">Volunteers</a>
