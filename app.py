@@ -3,28 +3,30 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 import os
 from werkzeug.utils import secure_filename
-from models import db, User, bcrypt
-from config import Config
+from flask_bcrypt import Bcrypt
+from models import db, User
 
+# Initialize Flask app
 app = Flask(__name__)
-app.config.from_object(Config)
+app.config.from_object("config.Config")
 
-# Upload folder setup
-UPLOAD_FOLDER = os.path.join(os.getcwd(), 'static', 'uploads')
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
-
+# Initialize database and bcrypt
 db.init_app(app)
-bcrypt.init_app(app)
+bcrypt = Bcrypt(app)
 
+# Setup login manager
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
 
+# Set up upload folder
+UPLOAD_FOLDER = os.path.join(os.getcwd(), 'static', 'uploads')
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
 @login_manager.user_loader
 def load_user(user_id):
-    return db.session.get(User, int(user_id))
+    return User.query.get(int(user_id))
 
 @app.route("/")
 def index():
@@ -36,7 +38,7 @@ def register():
         username = request.form.get("username")
         email = request.form.get("email")
         password = request.form.get("password")
-        role = request.form.get("role")
+        role = request.form.get("role", "user")
 
         if not email:
             flash("Email is required!", "danger")
@@ -49,14 +51,14 @@ def register():
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
 
         # Handle profile picture upload
-        profile_pic = "default.png"  # Default profile picture
+        profile_pic = "default.png"
         if "profile_pic" in request.files:
             file = request.files["profile_pic"]
             if file and file.filename:
                 filename = secure_filename(file.filename)
                 file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                file.save(file_path)  # Save file to uploads folder
-                profile_pic = filename  # Store filename in DB
+                file.save(file_path)
+                profile_pic = filename  
 
         new_user = User(username=username, email=email, password=hashed_password, role=role, profile_pic=profile_pic, description="")
 
@@ -75,7 +77,7 @@ def login():
         password = request.form["password"]
 
         user = User.query.filter_by(username=username).first()
-        if user and user.check_password(password):
+        if user and bcrypt.check_password_hash(user.password, password):
             login_user(user)
             session["user_id"] = user.id
             return redirect(url_for("dashboard"))
@@ -87,18 +89,19 @@ def login():
 @app.route("/dashboard", methods=["GET", "POST"])
 @login_required
 def dashboard():
-    user = db.session.get(User, session["user_id"])
+    user = User.query.get(session.get("user_id"))
 
-
+    if not user:
+        flash("User not found!", "danger")
+        return redirect(url_for("login"))
 
     if request.method == "POST":
         if "profile_pic" in request.files:
             file = request.files["profile_pic"]
             if file and file.filename:
                 filename = secure_filename(file.filename)
-                file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                file.save(file_path)
-                user.profile_pic = filename  # Update profile picture in DB
+                file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+                user.profile_pic = filename  
 
         user.description = request.form.get("description", "")
         db.session.commit()
